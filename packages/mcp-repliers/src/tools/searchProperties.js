@@ -21,7 +21,10 @@ export const searchPropertiesInputSchema = z.object({
     .optional(),
   status: z.enum(["A", "U"]).optional(),
   lastStatus: z.string().optional(),
-  neighborhood: z.string().optional(),
+  neighborhood: z.string().optional().describe(
+    'Exact MLS neighborhood name (e.g. "Hyde Park", "Mueller", "Barton Hills"). ' +
+    'Do NOT use broad directional areas — they will return 0 results.'
+  ),
   resultsPerPage: z.number().int().positive().optional(),
 });
 
