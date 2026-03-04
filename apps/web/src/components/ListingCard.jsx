@@ -37,24 +37,15 @@ function ListingCard({ property }) {
             className="listing-image"
             loading="lazy"
           />
-          {type && (
-            <span
-              className={`listing-type-badge listing-type-badge-overlay ${
-                type === "lease" ? "badge-lease" : "badge-sale"
-              }`}
-            >
-              {type === "lease" ? "Lease" : "Sale"}
-            </span>
-          )}
         </div>
       )}
       <div className="listing-body">
         <header className="listing-header">
           <div className="listing-header-left">
             <h3 className="listing-address">{address || "Unknown address"}</h3>
-            {(!imageUrl && type || propertyType) && (
+            {(type || propertyType) && (
               <div className="listing-badges">
-                {!imageUrl && type && (
+                {type && (
                   <span
                     className={`listing-type-badge ${
                       type === "lease" ? "badge-lease" : "badge-sale"

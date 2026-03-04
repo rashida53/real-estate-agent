@@ -31,7 +31,11 @@ const searchPropertiesSchema = z.object({
     .optional(),
   status: z.enum(["A", "U"]).optional().describe('Active or Unavailable listings'),
   lastStatus: z.string().optional().describe('e.g. "Sld" for recently sold'),
-  neighborhood: z.string().optional(),
+  neighborhood: z.string().optional().describe(
+    'Exact MLS neighborhood name (e.g. "Hyde Park", "Mueller", "Barton Hills"). ' +
+    'Do NOT use broad directional areas like "Northwest Austin" or "Central Austin" — those are not recognized neighborhoods and will return 0 results. ' +
+    'Omit this field if you only know a general area.'
+  ),
   resultsPerPage: z.number().int().positive().optional(),
 });
 
@@ -141,6 +145,12 @@ export async function runAgent(sessionId, userInput) {
         "- When a user asks for properties, locations, price ranges, bedrooms, or similar, call search_properties.\n" +
         "- When they ask about a specific property from previous results (e.g. 'tell me more about the 3rd one'), look up the MLS number from the search results in the conversation history and call get_listing_details. Do NOT re-call search_properties for follow-up questions about a single property.\n" +
         "- When they want a valuation, use get_property_estimate.\n\n" +
+        "CRITICAL conversational context rules:\n" +
+        "- The conversation history includes '[Tool calls this turn]' blocks showing exact parameters used in prior searches.\n" +
+        "- On follow-up queries, CARRY FORWARD prior search parameters (city, type, class, beds, etc.) unless the user explicitly changes or removes them.\n" +
+        "- Only change a parameter when the user explicitly mentions a new value or asks you to remove it.\n" +
+        "- EXCEPTION — neighborhood: The neighborhood parameter requires an exact MLS-defined name (e.g. 'Hyde Park', 'Mueller'). Broad directional areas like 'Northwest Austin' or 'Central Austin' are NOT valid neighborhood values. If the user mentions a general area rather than a specific neighborhood, do NOT pass it as the neighborhood parameter — just use city and mention the area in your response text.\n" +
+        "- If a prior search returned 0 results, consider relaxing the most restrictive filters (especially neighborhood, price bounds) rather than repeating the same failing query.\n\n" +
         "IMPORTANT response format rules:\n" +
         "- The UI automatically renders rich property cards (with images, price, beds, baths, sqft, etc.) below your message. NEVER repeat those details in your text.\n" +
         "- After a search, keep your reply SHORT: a one-sentence intro and optionally list just the addresses. Example: 'Here are 3 homes in Pflugerville under $350K.' Do NOT include price, beds, baths, sqft, descriptions, images, or links in your text—the cards show all of that.\n" +
@@ -249,10 +259,16 @@ export async function runAgent(sessionId, userInput) {
     replyText = JSON.stringify(finalAiMessage.content);
   }
 
-  // Build the text we persist to history. We append a compact reference of
-  // search results (MLS + address) so the LLM can use get_listing_details on
-  // follow-up turns instead of re-searching.
+  // Build the text we persist to history. We append tool call parameters and
+  // a compact reference of search results so the LLM can maintain context
+  // across turns and use get_listing_details on follow-ups.
   let historyText = replyText;
+  if (toolCallLog.length > 0) {
+    const paramSummary = toolCallLog
+      .map((tc) => `${tc.name}(${JSON.stringify(tc.args)}) → ${tc.resultCount ?? "ok"}`)
+      .join("\n");
+    historyText += `\n\n[Tool calls this turn]\n${paramSummary}`;
+  }
   if (lastToolResult && Array.isArray(lastToolResult.properties) && lastToolResult.properties.length > 0) {
     const refs = lastToolResult.properties
       .map((p, i) => `${i + 1}. ${p.address} (MLS: ${p.mlsNumber || "N/A"})`)
