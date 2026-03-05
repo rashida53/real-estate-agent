@@ -190,6 +190,42 @@ cd apps/web && npx vite build
 3. Register the tool in `packages/mcp-repliers/src/index.js`
 4. Add the corresponding LangChain tool in `packages/langchain-backend/src/agent/agent.js` and wire it via `callTool` in `mcpClient.js`
 
+## Deployment
+
+The three services map cleanly to separate deployment units. All secrets are injected via environment variables — no keys are hardcoded or committed.
+
+### Services
+
+| Service | Deployment unit | Notes |
+|---|---|---|
+| **MCP Server** | Docker container | Stateless; scale horizontally behind a load balancer. Switch from stdio to [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports) for production so multiple backend instances can share one MCP pool. |
+| **LangChain Backend** | Docker container | Stateless per request; scale horizontally. Set `MCP_SERVER_COMMAND`/`MCP_SERVER_ARGS` to point at the MCP service URL instead of a local process. |
+| **React Frontend** | Static assets + CDN | Run `npx vite build` → deploy `apps/web/dist/` to any CDN (Cloudflare Pages, S3 + CloudFront, Vercel). Set `VITE_API_URL` to the backend's public URL at build time. |
+
+### Example Docker workflow
+
+```sh
+# MCP server
+docker build -t real-estate-mcp ./packages/mcp-repliers
+docker run -e REPLIERS_API_KEY=... real-estate-mcp
+
+# LangChain backend
+docker build -t real-estate-backend ./packages/langchain-backend
+docker run -e OPENAI_API_KEY=... -e MCP_SERVER_ARGS='["..."]' -p 4000:4000 real-estate-backend
+```
+
+For orchestration, each container maps to a Kubernetes `Deployment` + `Service`. MCP and backend run in the same internal VPC (no public exposure for MCP); only the backend and frontend are publicly reachable.
+
+### Secrets management
+
+In production, inject secrets via your platform's secret manager (AWS Secrets Manager, GCP Secret Manager, Doppler, etc.) rather than plain env files. The key boundary remains the same:
+
+- `REPLIERS_API_KEY` — MCP container only
+- `OPENAI_API_KEY` — backend container only
+- Frontend holds no secrets
+
+See [`plan.md`](./plan.md) sections 6 and 7 for the full scalability and security discussion.
+
 ## License
 
 Private / Unlicense (TBD)
